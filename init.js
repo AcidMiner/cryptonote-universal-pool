@@ -5,24 +5,7 @@ var os = require('os');
 var redis = require('redis');
 
 
-var configFile = (function(){
-    for (var i = 0; i < process.argv.length; i++){
-        if (process.argv[i].indexOf('-config=') === 0)
-            return process.argv[i].split('=')[1];
-    }
-    return 'config.json';
-})();
-
-
-try {
-    global.config = JSON.parse(fs.readFileSync(configFile));
-}
-catch(e){
-    console.error('Failed to read config file ' + configFile + '\n\n' + e);
-    return;
-}
-
-config.version = "v0.99.0.6";
+require('./lib/configReader.js');
 
 require('./lib/logger.js');
 
@@ -47,6 +30,10 @@ if (cluster.isWorker){
         case 'cli':
             require('./lib/cli.js');
             break
+        case 'chartsDataCollector':
+            require('./lib/chartsDataCollector.js');
+            break
+
     }
     return;
 }
@@ -57,7 +44,7 @@ require('./lib/exceptionWriter.js')(logSystem);
 
 var singleModule = (function(){
 
-    var validModules = ['pool', 'api', 'unlocker', 'payments'];
+    var validModules = ['pool', 'api', 'unlocker', 'payments', 'chartsDataCollector'];
 
     for (var i = 0; i < process.argv.length; i++){
         if (process.argv[i].indexOf('-module=') === 0){
@@ -92,6 +79,9 @@ var singleModule = (function(){
                 case 'api':
                     spawnApi();
                     break;
+                case 'chartsDataCollector':
+                    spawnChartsDataCollector();
+                    break;
             }
         }
         else{
@@ -99,6 +89,7 @@ var singleModule = (function(){
             spawnBlockUnlocker();
             spawnPaymentProcessor();
             spawnApi();
+            spawnChartsDataCollector();
         }
 
         spawnCli();
@@ -245,4 +236,18 @@ function spawnApi(){
 
 function spawnCli(){
 
+}
+
+function spawnChartsDataCollector(){
+    if (!config.charts) return;
+
+    var worker = cluster.fork({
+        workerType: 'chartsDataCollector'
+    });
+    worker.on('exit', function(code, signal){
+        log('error', logSystem, 'chartsDataCollector died, spawning replacement...');
+        setTimeout(function(){
+            spawnChartsDataCollector();
+        }, 2000);
+    });
 }
